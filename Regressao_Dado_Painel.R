@@ -24,6 +24,7 @@ setwd("C:/Users/usuario/Documents/Modelo_Regressao/Dado_Painel")
 ################################################################################
 library(readxl)
 library(dplyr)
+library(tidyr)
 library(stringi)
 library(plm)
 library(foreign)
@@ -33,6 +34,7 @@ library(ggplot2)
 library(car)
 library(lmtest)
 library(sandwich)
+library(tseries)
 ################################################################################
 
 
@@ -80,7 +82,7 @@ painel <- pdata.frame(Base_dados, index = c("Municipio", "Ano"))
 
 # Modelo de Dados Empilhados (Pooled OLS Model)
 # Crédito Rural
-modelo_polled_rural <- plm(Credito_Rural~Escore_Fator1+Escore_Fator2+Escore_Fator3+
+modelo_polled_rural <- plm(Credito_Rural1~Escore_Fator1+Escore_Fator2+Escore_Fator3+
                              Pessoa_Fisica + Pessoa_Juridica + Producao_Familiar+
                              Financiamento_Mini,
                        data = painel, 
@@ -94,22 +96,26 @@ summary(modelo_polled_rural)
 ################################################################################
 # Modelo de Efeitos Fixos (Fixed Effects Estimation)
 # Crédito Rural
-modelo_FE_rural <- plm(Credito_Rural~Escore_Fator1+Escore_Fator2+Escore_Fator3+
+modelo_FE_rural <- plm(Credito_Rural1~Escore_Fator1+Escore_Fator2+Escore_Fator3+
                          Pessoa_Fisica + Pessoa_Juridica + Producao_Familiar+
                          Financiamento_Pequeno, 
                        data = painel, 
                        model = "within")
 
+# Coeficientes
 summary(modelo_FE_rural)
+
+# Estimate individual effects
+fixef(modelo_FE_rural)
 ###############################################################################
 
 
-shapiro.test(Base_dados$Pessoa_Fisica)
-shapiro.test(Base_dados$Pessoa_Juridica)
+shapiro.test(modelo_FE_rural$residuals)
+shapiro.test(correcao$residuals)
 
 # Ferramenta de Diagnóstico: Heterocesdaticidade
 # Teste de Breusch-Pagan
-bptest(modelo_FE_rural, studentize = TRUE)
+bptest(modelo_FE_rural, studentize = FALSE)
 
 # Interpretação:
 # p-valor < 0.05 → há evidência de heterocedasticidade
@@ -117,8 +123,15 @@ bptest(modelo_FE_rural, studentize = TRUE)
 
 # White's Standard Errors
 # Coeficientes com erros padrão robustos para heterocedasticidade
-coeftest(modelo_FE_rural, vcov = vcovHC(modelo_FE_rural, type = "HC1"))
 
+# Erro Robusto para Matriz Variância/Covariância
+summary(modelo_FE_rural, vcov. = function(x) vcovHC(x, type = "HC1", maxlag = 4))
+
+# Erro Robusto de Driscoll e Kraay(1998)
+summary(modelo_FE_rural, vcov. = function(x) vcovSCC(x, type = "HC1", maxlag = 4))
+
+# Erro Robusto de Croissant e Millo (2008)
+summary(modelo_FE_rural, vcov. = function(x) pvcovHC(x, method = "arellano", type = "HC1"))
 
 
 #---------------------------------- Analise -----------------------------------#
@@ -167,23 +180,126 @@ modelo_fe_n_rural <- plm(Credito_Nao_Rural~Escore_Fator1+Escore_Fator2+Escore_Fa
 # Modelo Efeito Aleatorio (Random Effects Estimation)
 
 # Credito Rural
-modelo_RE_rural <- plm(Credito_Rural ~ Escore_Fator1 + Escore_Fator2 + Escore_Fator3 +
+modelo_RE_rural <- plm(Credito_Rural1 ~ Escore_Fator1 + Escore_Fator2 + Escore_Fator3 +
                          Pessoa_Fisica + Pessoa_Juridica + Financiamento_Mini,
                        data = painel, 
                        model = "random")
 
 summary(modelo_RE_rural)
+
+
+bptest(modelo_RE_rural, studentize = TRUE)
+
+summary(modelo_RE_rural, vcov = function(x) vcovHC(x, method = "arellano"))
+
 ################################################################################
 
 
+# Boxplot para Credito_Rural por Ano
+ggplot(Base_dados, aes(x = as.factor(Ano), y = Credito_Rural)) +
+  geom_boxplot(fill = "skyblue", color = "darkblue") +
+  labs(
+    title = "Distribuição do Crédito Rural por Ano",
+    x = "Ano",
+    y = "Volume de Crédito Rural"
+  ) +
+  theme_gray()
+
+ggplot(Base_dados, aes(x = as.factor(Ano), y = Credito_Nao_Rural)) +
+  geom_boxplot(fill = "lightgreen", color = "darkgreen") +
+  labs(
+    title = "Distribuição do Crédito Não Rural por Ano",
+    x = "Ano",
+    y = "Volume de Crédito Não Rural"
+  ) +
+  theme_gray()
+
+
+
+# Converte os dados para formato longo
+dados_long <- Base_dados %>%
+  pivot_longer(
+    cols = c(Credito_Rural, Credito_Nao_Rural),
+    names_to = "Tipo_Credito",
+    values_to = "Valor"
+  )
+
+# Cria o boxplot com facet
+ggplot(dados_long, aes(x = as.factor(Ano), y = Valor, fill = Tipo_Credito)) +
+  geom_boxplot(outlier.color = "red", alpha = 0.7) +
+  facet_wrap(~Tipo_Credito, scales = "free_y") +
+  labs(
+    title = "Distribuição dos Créditos Rural e Não Rural por Ano",
+    x = "Ano",
+    y = "Valor (R$)",
+    fill = "Tipo de Crédito"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+
+
+Base_dados %>%
+  summarise(
+    media_rural = mean(Credito_Rural, na.rm = TRUE),
+    mediana_rural = median(Credito_Rural, na.rm = TRUE),
+    sd_rural = sd(Credito_Rural, na.rm = TRUE),
+    q1_rural = quantile(Credito_Rural, 0.25, na.rm = TRUE),
+    q3_rural = quantile(Credito_Rural, 0.75, na.rm = TRUE)
+  )
+
+
+Base_dados %>%
+  group_by(Ano) %>%
+  summarise(
+    media_rural = mean(Credito_Rural, na.rm = TRUE),
+    total_rural = sum(Credito_Rural, na.rm = TRUE),
+    media_nao_rural = mean(Credito_Nao_Rural, na.rm = TRUE),
+    total_nao_rural = sum(Credito_Nao_Rural, na.rm = TRUE)
+  )
+
+Base_dados %>%
+  group_by(Municipio, UF) %>%
+  summarise(
+    total_rural = sum(Credito_Rural, na.rm = TRUE),
+    total_nao_rural = sum(Credito_Nao_Rural, na.rm = TRUE) 
+  ) %>%
+  arrange(desc(total_rural)) %>%
+  slice_head(n = 15)
+
+ggplot(Base_dados, 
+       aes(x = Credito_Rural)) +
+  geom_histogram(bins = 30, fill = "skyblue", color = "black") +
+  theme_minimal() +
+  labs(title = "Histograma do Crédito Rural", x = "Valor", y = "Frequência")
 
 
 
 
+ranking_rural <- Base_dados %>%
+  group_by(Municipio) %>%
+  summarise(Total_Credito_Rural = sum(Credito_Rural, na.rm = TRUE)) %>%
+  arrange(desc(Total_Credito_Rural)) %>%
+  slice_head(n = 20)
+
+# Visualiza o ranking
+print(ranking_rural)
+
+
+ggplot(ranking_rural, aes(x = reorder(Municipio, Total_Credito_Rural), y = Total_Credito_Rural)) +
+  geom_col(fill = "steelblue") +
+  coord_flip() +
+  labs(
+    title = "Top 15 Municípios com Maior Crédito Rural",
+    x = "Município",
+    y = "Total Crédito Rural (R$)"
+  ) +
+  theme_minimal()
 
 
 
 
+#--------------------------------------------------------------------------#
 coeftest(modelo_RE_rural)
 
 
@@ -215,23 +331,48 @@ modelo_re_n_rural <- plm(Credito_Nao_Rural~Escore_Fator1+Escore_Fator2+Escore_Fa
 
 
 ################################################################################
-# F Test de Chow
-pFtest(modelo_FE_rural, modelo_polled_rural)
+# TESTE DIAGNOSTICOS
 
+# F Test de Chow
+plm::pFtest(modelo_FE_rural, modelo_polled_rural)
 
 # # Teste LM de Breusch-Pagan
-plmtest(modelo_polled_rural, type = "bp")
+plm::plmtest(modelo_polled_rural, effect = "individual", type = "bp")
+
+# Teste de Hausman para Escolher (FE x RE)
+plm::phtest(modelo_RE_rural, modelo_FE_rural)
+
+
+# Teste de Correlação Cross-setion (Breusch-Pagan LM)
+plm::pcdtest(modelo_FE_rural, test = c("lm"))
+
+# Teste de Correlação (Pesaran CD test for cross-sectional dependence in panels)
+plm::pcdtest(modelo_FE_rural, test = c("cd"))
+
+
+# Teste Correlação Serial (Breusch-Godfrey/Wooldridge)
+plm::pbgtest(modelo_FE_rural)
+
+plm::pwartest(modelo_FE_rural)
+
+
+# Teste de Durbin-Watson 
+plm::pdwtest(modelo_FE_rural)
+
+
+# Teste de Raiz Unitaria
+adf.test(modelo_FE_rural, k=2)
+
+
+# Teste de Breusch-Pagan P/ Heterocedasticidade
+# Teste para Homocedasticidade (variância constante) dos resíduos de Breusch-Pagan (1979):
+lmtest::bptest(modelo_FE_rural, studentize = FALSE)
 ################################################################################
 
 
 
 
-# Hausman Test
 
-# Teste de Hausman para escolher entre FE e RE
-hausman_rural <- phtest(modelo_FE_rural, modelo_RE_rural)
-
-hausman_nao_rural <- phtest(modelo_fe_n_rural, modelo_re_n_rural)
 
 
 
@@ -333,7 +474,12 @@ ggplot(mapa_impacto) +
 
 
 
+#-------------------------------------------------------------#
 
+ggplot(data = Base_dados, aes(x = Ano, y = Credito_Rural1)) +
+  geom_line() +
+  labs(x = "Year",  y = "Volume de Crédito") +
+  theme(legend.position = "none")
 
 
 
