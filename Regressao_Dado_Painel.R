@@ -8,20 +8,17 @@
 
 ################################################################################
 # LIMPAR MEMÓRIA
-################################################################################
 rm(list=ls())
 ################################################################################
 
 ################################################################################
 # DEFINIR DIRETÓRIO DE TRABALHAO
-################################################################################
 setwd("C:/Users/usuario/Documents/Modelo_Regressao/Dado_Painel")
 ################################################################################
 
 
 ################################################################################
 # PACKAGES
-################################################################################
 library(readxl)
 library(dplyr)
 library(tidyr)
@@ -35,12 +32,14 @@ library(car)
 library(lmtest)
 library(sandwich)
 library(tseries)
+library(corrplot)
+library(sf)
+library(geobr)
 ################################################################################
 
 
 ################################################################################
 # DATASET
-################################################################################
 Base_dados <- read_excel("Base_Volume_Credito_Rural.xlsx")
 
 # Verificar a Estrutura
@@ -54,8 +53,8 @@ Base_dados <- Base_dados %>%
 
 
 ################################################################################
-# Transformar em objeto de painel
-################################################################################
+# Transformar em Objeto de Painel
+
 painel <- pdata.frame(Base_dados, index = c("Municipio", "Ano"))
 
 # Fórmulas dos Modelos
@@ -71,25 +70,232 @@ formula_nao_rural <- Credito_Nao_Rural ~ Escore_Fator1 + Escore_Fator2 + Escore_
 ################################################################################
 
 
-
 ################################################################################
 # Leitura de Base de Dados (DATASET)
 Base_dados <- read_excel("Base_Volume_Credito_Rural.xlsx")
 
 # Transformar em Objeto de Painel
 painel <- pdata.frame(Base_dados, index = c("Municipio", "Ano"))
+################################################################################
 
 
+################################################################################
+# MATRIZ DE CORRELAÇÃO
+
+# Selecionar apenas variáveis numéricas para correlação
+dados_numeric <- Base_dados %>%
+  select(Credito_Rural, 
+         Credito_Nao_Rural, 
+         Escore_Fator1, 
+         Escore_Fator2, 
+         Escore_Fator3,
+         Pessoa_Fisica, 
+         Pessoa_Juridica, Producao_Familiar,
+         Financiamento_Mini, 
+         Financiamento_Pequeno, 
+         Financiamento_Medio, 
+         Financiamento_Grande)
+
+# Remover linhas com NA
+dados_numeric <- na.omit(dados_numeric)
+
+# Calcular a matriz de correlação
+cor_matriz <- cor(dados_numeric)
+
+# Visualizar a correlação em gráfico
+corrplot(cor_matriz, 
+         method = "color", 
+         type = "lower",
+         tl.col = "black", 
+         tl.srt = 90,
+         is.corr = TRUE,
+         sig.level = 0.05,
+         insig = 'p-value',
+         addCoef.col = "black", 
+         diag =  TRUE,
+         number.cex = 0.8)
+
+################################################################################
+
+
+################################################################################
+# Gráfico de Disperssão 
+ggplot(Base_dados, aes(x = Pessoa_Juridica, y = Credito_Rural)) +
+  geom_point(alpha = 0.8) +
+  geom_smooth(method = "lm", se = TRUE, color = "red") +
+  theme_minimal() +
+  labs(title = "Volume de Crédito Rural vs Pessoa Juridica", 
+       x = "Pessoa Jurídica", 
+       y = "Volume de Crédito Rural")
+
+# Gráfico de Disperssão 
+ggplot(Base_dados, aes(x = Pessoa_Fisica, y = Credito_Rural)) +
+  geom_point(alpha = 0.8) +
+  geom_smooth(method = "lm", se = TRUE, color = "red") +
+  theme_minimal() +
+  labs(title = "Volume de Crédito Rural vs Pessoa Física", 
+       x = "Pessoa Física", 
+       y = "Volume de Crédito Rural")
+
+# Gráfico de Disperssão 
+ggplot(Base_dados, aes(x = Producao_Familiar, y = Credito_Rural)) +
+  geom_point(alpha = 0.6) +
+  geom_smooth(method = "lm", se = TRUE, color = "red") +
+  theme_minimal() +
+  labs(title = "Volume de Crédito Rural vs Produção Familiar", 
+       x = "Produção Familiar",
+       y = "Volume de Crédito Rural")
+################################################################################
+
+
+################################################################################
+# Média de Crédito Rural
+
+Base_dados %>%
+  group_by(Ano) %>%
+  summarise(Media_Credito_Rural = mean(Credito_Rural, na.rm = TRUE)) %>%
+  ggplot(aes(x = Ano, y = Media_Credito_Rural)) +
+  geom_line(color = "blue", size = 1) +
+  geom_point(color = "darkblue", size = 2) +
+  theme_minimal() +
+  labs(title = "Tendência do Crédito Rural ao longo do tempo", x = "Ano", y = "Média do Crédito Rural")
+
+
+
+# Calcular a média e o percentual (Top 10 municípios Rural)
+top_municipios <- Base_dados %>%
+  group_by(Municipio) %>%
+  summarise(Media_Credito_Rural = mean(Credito_Rural1, na.rm = TRUE)) %>%
+  arrange(desc(Media_Credito_Rural)) %>%
+  slice_head(n = 10) %>%
+  mutate(Percentual = Media_Credito_Rural / sum(Media_Credito_Rural) * 100)
+
+# Criar gráfico com percentual dentro das barras
+ggplot(top_municipios, aes(x = reorder(Municipio, Media_Credito_Rural), 
+                           y = Media_Credito_Rural)) +
+  geom_col(fill = "steelblue") +
+  geom_text(aes(label = paste0(round(Percentual, 1), "%")),
+            hjust = 1.1, color = "white", size = 4) +
+  coord_flip() +
+  theme_minimal() +
+  labs(
+    title = "Top 10 Municípios com Maior Média de Crédito Rural",
+    #subtitle = "Com percentual de participação entre os Top 10",
+    x = "Município",
+    y = "Volume de Crédito Rural"
+  )
+
+
+# Calcular a média e o percentual (Top 10 municípios Não Rural)
+top_municipios <- Base_dados %>%
+  group_by(Municipio) %>%
+  summarise(Media_Credito_Rural = mean(Credito_Nao_Rural, na.rm = TRUE)) %>%
+  arrange(desc(Media_Credito_Rural)) %>%
+  slice_head(n = 10) %>%
+  mutate(Percentual = Media_Credito_Rural / sum(Media_Credito_Rural) * 100)
+
+# Criar gráfico com percentual dentro das barras
+ggplot(top_municipios, aes(x = reorder(Municipio, Media_Credito_Rural), 
+                           y = Media_Credito_Rural)) +
+  geom_col(fill = "steelblue") +
+  geom_text(aes(label = paste0(round(Percentual, 1), "%")),
+            hjust = 1.1, color = "white", size = 4) +
+  coord_flip() +
+  theme_minimal() +
+  labs(
+    title = "Top 10 Municípios com Maior Média de Crédito Não Rural",
+    #subtitle = "Com percentual de participação entre os Top 10",
+    x = "Município",
+    y = "Volume de Crédito Não Rural"
+  )
+
+
+
+# Calcular média de crédito rural por município e ano
+top_municipios_por_ano <- Base_dados %>%
+  group_by(Ano, Municipio) %>%
+  summarise(Media_Credito_Rural = mean(Credito_Rural, na.rm = TRUE), .groups = "drop") %>%
+  arrange(Ano, desc(Media_Credito_Rural)) %>%
+  group_by(Ano) %>%
+  slice_max(Media_Credito_Rural, n = 10) %>%
+  ungroup()
+
+# Criar gráfico com facet por ano
+ggplot(top_municipios_por_ano, aes(x = reorder(Municipio, Media_Credito_Rural), 
+                                   y = Media_Credito_Rural)) +
+  geom_col(fill = "darkgreen") +
+  coord_flip() +
+  facet_wrap(~Ano, scales = "free_y") +
+  theme_minimal() +
+  labs(
+    title = "Top 10 Municípios com Maior Média de Crédito Rural por Ano",
+    x = "Município",
+    y = "Média de Crédito Rural"
+  )
+
+
+# Calcular média de crédito rural por UF e ano
+top_ufs_por_ano <- Base_dados%>%
+  group_by(Ano, UF) %>%
+  summarise(Media_Credito_Rural = mean(Credito_Rural, na.rm = TRUE), .groups = "drop") %>%
+  arrange(Ano, desc(Media_Credito_Rural)) %>%
+  group_by(Ano) %>%
+  slice_max(Media_Credito_Rural, n = 10) %>%
+  ungroup()
+
+# Gráfico com facet por ano
+ggplot(top_ufs_por_ano, aes(x = reorder(UF, Media_Credito_Rural), 
+                            y = Media_Credito_Rural)) +
+  geom_col(fill = "darkorange") +
+  coord_flip() +
+  facet_wrap(~Ano, scales = "free_y") +
+  theme_minimal() +
+  labs(
+    title = "Top 10 UFs com Maior Média de Crédito Rural por Ano",
+    x = "UF",
+    y = "Média de Crédito Rural"
+  )
+################################################################################
+
+
+################################################################################
+# Mapa Tematico
+
+# Baixa o shapefile dos estados brasileiros
+ufs_sf <- read_state(year = 2020, showProgress = FALSE)
+
+# Agrupar os dados por UF e calcular média
+media_uf <- Base_dados %>%
+  group_by(UF) %>%
+  summarise(Media_Credito_Rural = mean(Credito_Rural, na.rm = TRUE))
+
+# Verifique se a coluna 'abbrev_state' no shapefile é compatível com 'UF'
+mapa_dados <- ufs_sf %>%
+  left_join(media_uf, by = c("abbrev_state" = "UF"))
+
+
+ggplot(mapa_dados) +
+  geom_sf(aes(fill = Media_Credito_Rural), color = "white") +
+  scale_fill_viridis_c(option = "C", direction = -1, name = "Média Crédito Rural") +
+  theme_minimal() +
+  labs(
+    title = "Distribuição Espacial da Média de Crédito Rural por UF",
+    subtitle = "Valores médios agregados por Unidade da Federação"
+  )
+################################################################################
+
+
+
+################################################################################
 # Modelo de Dados Empilhados (Pooled OLS Model)
 # Crédito Rural
-modelo_polled_rural <- plm(Credito_Rural1~Escore_Fator1+Escore_Fator2+Escore_Fator3+
+modelo_polled_rural <- plm(Credito_Rural1 ~ Escore_Fator1+Escore_Fator2+Escore_Fator3+
                              Pessoa_Fisica + Pessoa_Juridica + Producao_Familiar+
                              Financiamento_Mini,
                        data = painel, 
                        model = "pooling")
-
+# Coeficientes
 summary(modelo_polled_rural)
-
 ################################################################################
 
 
@@ -107,6 +313,13 @@ summary(modelo_FE_rural)
 
 # Estimate individual effects
 fixef(modelo_FE_rural)
+
+
+
+library(modelsummary)
+modelsummary(modelo_FE_rural, 
+             output = "markdown", 
+             stars = TRUE)
 ###############################################################################
 
 
@@ -125,7 +338,7 @@ bptest(modelo_FE_rural, studentize = FALSE)
 # Coeficientes com erros padrão robustos para heterocedasticidade
 
 # Erro Robusto para Matriz Variância/Covariância
-summary(modelo_FE_rural, vcov. = function(x) vcovHC(x, type = "HC1", maxlag = 4))
+summary(modelo_FE_rural, vcov. = function(modelo_FE_rural) vcovHC(modelo_FE_rural, type = "HC1", maxlag = 4))
 
 # Erro Robusto de Driscoll e Kraay(1998)
 summary(modelo_FE_rural, vcov. = function(x) vcovSCC(x, type = "HC1", maxlag = 4))
@@ -188,31 +401,12 @@ modelo_RE_rural <- plm(Credito_Rural1 ~ Escore_Fator1 + Escore_Fator2 + Escore_F
 summary(modelo_RE_rural)
 
 
-bptest(modelo_RE_rural, studentize = TRUE)
-
 summary(modelo_RE_rural, vcov = function(x) vcovHC(x, method = "arellano"))
 
 ################################################################################
 
 
-# Boxplot para Credito_Rural por Ano
-ggplot(Base_dados, aes(x = as.factor(Ano), y = Credito_Rural)) +
-  geom_boxplot(fill = "skyblue", color = "darkblue") +
-  labs(
-    title = "Distribuição do Crédito Rural por Ano",
-    x = "Ano",
-    y = "Volume de Crédito Rural"
-  ) +
-  theme_gray()
 
-ggplot(Base_dados, aes(x = as.factor(Ano), y = Credito_Nao_Rural)) +
-  geom_boxplot(fill = "lightgreen", color = "darkgreen") +
-  labs(
-    title = "Distribuição do Crédito Não Rural por Ano",
-    x = "Ano",
-    y = "Volume de Crédito Não Rural"
-  ) +
-  theme_gray()
 
 
 
@@ -276,25 +470,6 @@ ggplot(Base_dados,
 
 
 
-ranking_rural <- Base_dados %>%
-  group_by(Municipio) %>%
-  summarise(Total_Credito_Rural = sum(Credito_Rural, na.rm = TRUE)) %>%
-  arrange(desc(Total_Credito_Rural)) %>%
-  slice_head(n = 20)
-
-# Visualiza o ranking
-print(ranking_rural)
-
-
-ggplot(ranking_rural, aes(x = reorder(Municipio, Total_Credito_Rural), y = Total_Credito_Rural)) +
-  geom_col(fill = "steelblue") +
-  coord_flip() +
-  labs(
-    title = "Top 15 Municípios com Maior Crédito Rural",
-    x = "Município",
-    y = "Total Crédito Rural (R$)"
-  ) +
-  theme_minimal()
 
 
 
@@ -340,7 +515,7 @@ plm::pFtest(modelo_FE_rural, modelo_polled_rural)
 plm::plmtest(modelo_polled_rural, effect = "individual", type = "bp")
 
 # Teste de Hausman para Escolher (FE x RE)
-plm::phtest(modelo_RE_rural, modelo_FE_rural)
+plm::phtest(modelo_FE_rural, modelo_RE_rural)
 
 
 # Teste de Correlação Cross-setion (Breusch-Pagan LM)
@@ -403,7 +578,7 @@ stargazer::stargazer(modelo_polled_rural, modelo_FE_rural, modelo_RE_rural,
           title = "Resultados da Regressão em Painel",
           align = TRUE,
           style = "all",
-          column.labels = c("Pooled", "Eefeito Fixol"),
+          column.labels = c("Pooled", "Efeito Fixo", "Efeito Aleatório"),
           dep.var.labels.include = FALSE,
           covariate.labels = c("Escore Fator 1", "Escore Fator 2", "Escore Fator 3"),
           keep.stat = c("aic", "bic", "rsq", 
@@ -421,8 +596,6 @@ painel$Credito_Previsto <- 45.97 * painel$Escore_Fator1 +
   1879.07 * painel$Escore_Fator3
 
 
-
-
 impacto_municipio <- painel %>%
   group_by(Municipio) %>%
   summarise(Credito_Previsto_Medio = mean(Credito_Previsto, na.rm = TRUE)) %>%
@@ -433,54 +606,124 @@ impacto_municipio <- painel %>%
 # Top 10 municípios com maior impacto previsto
 
 
-top_mun <- impacto_municipio %>% slice_max(Credito_Previsto_Medio, n = 10)
+top_mun <- impacto_municipio %>% slice_max(Credito_Previsto_Medio, n = 15)
  
 ggplot(top_mun, aes(x = reorder(Municipio, Credito_Previsto_Medio), y = Credito_Previsto_Medio)) +
   geom_col(fill = "forestgreen") +
   coord_flip() +
-  labs(title = "Top 10 municípios com maior previsão de Crédito Rural (modelo FE)",
-       x = "Município", y = "Crédito Rural Previsto (R$)") +
+  labs(title = "Top 15 Maior Previsão de Crédito Rural (Efeito Fixo)",
+       x = "Municípios", y = "Volume de Crédito Rural Previsto (R$)") +
   theme_minimal()
 
 
 
-library(geobr)
-library(sf)
 
-# Baixar shapefile dos municípios do Pará
-mapa_pa <- read_municipality(code_state = "PA", year = 2020)
-
-# Remover acentos e deixar em caixa baixa
-library(stringi)
-
-impacto_municipio <- impacto_municipio %>%
-  mutate(name_muni = stri_trans_general(tolower(Municipio), "Latin-ASCII"))
-
-mapa_pa <- mapa_pa %>%
-  mutate(name_muni = stri_trans_general(tolower(name_muni), "Latin-ASCII"))
-
-# Juntar os dados
-mapa_impacto <- left_join(mapa_pa, impacto_municipio, by = "name_muni")
-
-
-ggplot(mapa_impacto) +
-  geom_sf(aes(fill = Credito_Previsto_Medio), color = "white", size = 0.2) +
-  scale_fill_viridis_c(option = "C", direction = -1, na.value = "gray90") +
-  labs(title = "Impacto médio previsto do Crédito Rural por município (modelo FE)",
-       fill = "Crédito Previsto (R$)") +
+ggplot(Base_dados, aes(x = Escore_Fator3, y = Credito_Rural1)) +
+  geom_point(alpha = 0.4) +
+  geom_smooth(method = "lm", se = TRUE, color = "blue") +
   theme_minimal() +
-  theme(legend.position = "right")
+  labs(
+    title = "Crédito Rural vs. Escore Fator 3 (PIB, ICMS)",
+    x = "Escore Fator 3",
+    y = "Crédito Rural"
+  )
+
+
+
+#-------------------------------------------------------------------#
+
+library(ggplot2)
+
+# Fator 1: Estrutura urbana
+ggplot(Base_dados, aes(x = Escore_Fator1, y = Credito_Rural1)) +
+  geom_point(alpha = 0.4) +
+  geom_smooth(method = "lm", se = TRUE, color = "red") +
+  theme_minimal() +
+  labs(title = "Crédito Rural vs. Fator 1 (Urbano/Social)",
+       x = "Escore Fator 1",
+       y = "Crédito Rural")
+
+# Fator 2: Agropecuária/Desmatamento
+ggplot(Base_dados, aes(x = Escore_Fator2, y = Credito_Rural1)) +
+  geom_point(alpha = 0.4) +
+  geom_smooth(method = "lm", se = TRUE, color = "forestgreen") +
+  theme_minimal() +
+  labs(title = "Crédito Rural vs. Fator 2 (Agropecuária/Desmatamento)",
+       x = "Escore Fator 2",
+       y = "Crédito Rural")
+
+# Fator 3: Dinamismo Econômico
+ggplot(Base_dados, aes(x = Escore_Fator3, y = Credito_Rural1)) +
+  geom_point(alpha = 0.4) +
+  geom_smooth(method = "lm", se = TRUE, color = "blue") +
+  theme_minimal() +
+  labs(title = "Crédito Rural vs. Fator 3 (PIB + ICMS)",
+       x = "Escore Fator 3",
+       y = "Crédito Rural")
 
 
 
 
-#-------------------------------------------------------------#
 
-ggplot(data = Base_dados, aes(x = Ano, y = Credito_Rural1)) +
-  geom_line() +
-  labs(x = "Year",  y = "Volume de Crédito") +
-  theme(legend.position = "none")
+# Gráfico de coeficientes com intervalos de confiança dos fatores
 
+library(broom)
+
+# Extrair os coeficientes do modelo
+coeficientes <- tidy(modelo_FE_rural, conf.int = TRUE)
+
+# Filtrar apenas as variáveis explicativas (caso tenha efeitos fixos ocultos)
+coef_plot <- coeficientes %>%
+  filter(term != "(Intercept)")
+
+# Plotar o forest plot
+ggplot(coef_plot, aes(x = reorder(term, estimate), y = estimate)) +
+  geom_point(size = 3, color = "darkblue") +
+  geom_errorbar(aes(ymin = conf.low, ymax = conf.high), width = 0.2, color = "gray40") +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
+  coord_flip() +
+  theme_minimal() +
+  labs(
+    title = "Coeficientes do Modelo com Intervalos de Confiança",
+    x = "Variáveis",
+    y = "Estimativas"
+  )
+
+
+
+
+
+# Extrair os coeficientes com IC do modelo
+coeficientes <- tidy(modelo_FE_rural, conf.int = TRUE)
+
+# Substituir nomes técnicos por nomes legíveis
+nomes_amigaveis <- c(
+  "Escore_Fator1" = "Fator 1: Urbano/Social",
+  "Escore_Fator2" = "Fator 2: Agro/Desmatamento",
+  "Escore_Fator3" = "Fator 3: PIB + ICMS",
+  "Pessoa_Fisica" = "Pessoa Física",
+  "Pessoa_Juridica" = "Pessoa Jurídica",
+  "Producao_Familiar" = "Produção Familiar",
+  "Financiamento_Pequeno" = "Financiamento Pequeno"
+)
+
+# Substituir os nomes na coluna term
+coef_plot <- coeficientes %>%
+  filter(term %in% names(nomes_amigaveis)) %>%
+  mutate(term_legivel = nomes_amigaveis[term])
+
+# Plot
+ggplot(coef_plot, aes(x = reorder(term_legivel, estimate), y = estimate)) +
+  geom_point(size = 3, color = "steelblue") +
+  geom_errorbar(aes(ymin = conf.low, ymax = conf.high), width = 0.2, color = "gray40") +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
+  coord_flip() +
+  theme_minimal(base_size = 13) +
+  labs(
+    title = "Efeitos Estimados no Crédito Rural (Modelo de Efeitos Fixos)",
+    x = "Variáveis Explicativas",
+    y = "Coeficiente Estimado (com IC 95%)"
+  )
 
 
 
